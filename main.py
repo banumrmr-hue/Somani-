@@ -17,7 +17,7 @@ from aiogram.enums import ParseMode
 # ==========================================
 # ⚙️ CONFIGURATION
 # ==========================================
-API_TOKEN = '8628992445:AAFn4ElPXRa6-8huefzzIFcC3OMecIDXXUM' # ⚠️ Revoke and change this later for security!
+API_TOKEN = '8628992445:AAGBmsTfZXNslbB7yViEdBS_TpfA5jdOYO4' # ⚠️ Revoke and change this later for security!
 ADMIN_IDS = [7616065999, 7672413819] # Both Admins supported!
 SUPPORT_LINK = 'https://t.me/somani_07x'
 
