@@ -1,3 +1,4 @@
+#luvu
 import sqlite3
 import random
 import string
