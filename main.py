@@ -1,183 +1,243 @@
+import random
+import string
+import html
 import asyncio
+from datetime import datetime, timedelta
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import CommandStart
-from aiogram.enums import ParseMode
+from aiogram.filters import CommandStart, Command, CommandObject
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 
-from pymongo import MongoClient
+from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 
-# ========= CONFIG =========
-API_TOKEN = "8628992445:AAE_7n3Jjru_71_b9LKdfeMF01mc7wLS_YY"
+# ==========================================
+# ⚙️ CONFIGURATION
+# ==========================================
+API_TOKEN = '8628992445:AAE_7n3Jjru_71_b9LKdfeMF01mc7wLS_YY'
+ADMIN_IDS = [7418454273, 7672413819]
+SUPPORT_LINK = 'https://t.me/somani_07x'
+
 MONGO_URL = "mongodb+srv://adminbot:admin123@cluster0.tnvj2pr.mongodb.net/?retryWrites=true&w=majority"
 
-ADMIN_IDS = [7418454273,7672413819]
-
-bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
-
-# ========= DB =========
-client = MongoClient(MONGO_URL)
-db = client["bot"]
+client = AsyncIOMotorClient(MONGO_URL)
+db = client["ig_bot"]
 
 users = db["users"]
 store = db["store"]
 channels = db["channels"]
+redeem_codes = db["redeem_codes"]
+claimed_codes = db["claimed_codes"]
 
-# ========= FORCE JOIN =========
-async def check_join(user_id):
-    chs = list(channels.find())
+bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher(storage=MemoryStorage())
+
+# ==========================================
+# 🧠 STATES
+# ==========================================
+class AdminAddProduct(StatesGroup):
+    waiting_for_user = State()
+    waiting_for_gmail = State()
+    waiting_for_year = State()
+    waiting_for_price = State()
+
+class AdminAddChannel(StatesGroup):
+    waiting_for_chat_id = State()
+    waiting_for_url = State()
+
+class AdminDelChannel(StatesGroup):
+    waiting_for_chat_id = State()
+
+class AdminGenCode(StatesGroup):
+    waiting_for_points = State()
+    waiting_for_uses = State()
+
+class AdminBroadcast(StatesGroup):
+    waiting_for_msg = State()
+
+class UserRedeem(StatesGroup):
+    waiting_for_code = State()
+
+# ==========================================
+# 🔒 FORCE JOIN
+# ==========================================
+async def check_joined(user_id: int):
     not_joined = []
-
-    for ch in chs:
+    async for ch in channels.find():
         try:
-            member = await bot.get_chat_member(ch["chat_id"], user_id)
-            if member.status not in ["member", "administrator", "creator"]:
-                not_joined.append(ch)
+            member = await bot.get_chat_member(chat_id=ch["chat_id"], user_id=user_id)
+            if member.status not in ['member', 'administrator', 'creator']:
+                not_joined.append((ch["chat_id"], ch["url"]))
         except:
-            not_joined.append(ch)
+            not_joined.append((ch["chat_id"], ch["url"]))
+    return len(not_joined) == 0, not_joined
 
-    return not_joined
-
-def force_kb(chs):
-    kb = []
-    for ch in chs:
-        kb.append([InlineKeyboardButton(text="🔔 𝐉𝐎𝐈𝐍", url=ch["url"])])
-    kb.append([InlineKeyboardButton(text="✅ 𝐈 𝐉𝐎𝐈𝐍𝐄𝐃", callback_data="check_join")])
-    return InlineKeyboardMarkup(inline_keyboard=kb)
-
-# ========= MENU =========
-def menu(uid):
-    kb = [
-        [InlineKeyboardButton(text="🛍 𝐒𝐓𝐎𝐑𝐄", callback_data="store"),
-         InlineKeyboardButton(text="💳 𝐏𝐎𝐈𝐍𝐓𝐒", callback_data="points")]
+# ==========================================
+# 🏠 MENU
+# ==========================================
+def main_menu_kb(user_id: int):
+    kb_rows = [
+        [InlineKeyboardButton(text="🛍️ 𝙎𝙏𝙊𝙍𝙀", callback_data="menu_store"),
+         InlineKeyboardButton(text="🎁 𝘿𝘼𝙄𝙇𝙔 𝘽𝙊𝙉𝙐𝙎", callback_data="menu_daily")],
+        [InlineKeyboardButton(text="🎟️ 𝙍𝙀𝘿𝙀𝙀𝙈", callback_data="menu_redeem"),
+         InlineKeyboardButton(text="💳 𝙈𝙔 𝙋𝙊𝙄𝙉𝙏𝙎", callback_data="menu_points")],
+        [InlineKeyboardButton(text="🔗 𝙍𝙀𝙁𝙀𝙍", callback_data="menu_refer"),
+         InlineKeyboardButton(text="📞 𝙎𝙐𝙋𝙋𝙊𝙍𝙏", url=SUPPORT_LINK)]
     ]
-    if uid in ADMIN_IDS:
-        kb.append([InlineKeyboardButton(text="➕ 𝐀𝐃𝐃", callback_data="add")])
-    return InlineKeyboardMarkup(inline_keyboard=kb)
 
-# ========= START =========
+    if user_id in ADMIN_IDS:
+        kb_rows.append([InlineKeyboardButton(text="👑 ——— 𝘼𝘿𝙈𝙄𝙉 ——— 👑", callback_data="ignore_click")])
+        kb_rows.append([InlineKeyboardButton(text="➕ ADD ACCOUNT", callback_data="admin_add"),
+                        InlineKeyboardButton(text="🎟️ GEN CODE", callback_data="admin_gen")])
+        kb_rows.append([InlineKeyboardButton(text="➕ ADD CHNL", callback_data="admin_addch"),
+                        InlineKeyboardButton(text="➖ DEL CHNL", callback_data="admin_delch")])
+        kb_rows.append([InlineKeyboardButton(text="📢 BROADCAST", callback_data="admin_cast"),
+                        InlineKeyboardButton(text="📊 STATS", callback_data="admin_stats")])
+
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+# ==========================================
+# 🚀 START + REFERRAL
+# ==========================================
+async def process_new_user_and_welcome(user_id, message_obj, args, is_callback=False):
+    user = await users.find_one({"user_id": user_id})
+
+    if not user:
+        await users.insert_one({
+            "user_id": user_id,
+            "points": 2,
+            "last_bonus": None
+        })
+
+        if args and args.isdigit() and int(args) != user_id:
+            await users.update_one({"user_id": int(args)}, {"$inc": {"points": 5}})
+
+    user = await users.find_one({"user_id": user_id})
+    bal = user["points"]
+
+    text = f"<b>𝙐𝙉𝘾 𝙄𝙂 𝘽𝙊𝙏✨❣️</b>\n\nBalance: <b>{bal} 🪙</b>"
+
+    if is_callback:
+        await message_obj.answer(text, reply_markup=main_menu_kb(user_id))
+    else:
+        await message_obj.reply(text, reply_markup=main_menu_kb(user_id))
+
 @dp.message(CommandStart())
-async def start(msg: Message):
-    uid = msg.from_user.id
+async def start_cmd(message: Message, command: CommandObject):
+    user_id = message.from_user.id
+    args = command.args
 
-    if not users.find_one({"user_id": uid}):
-        users.insert_one({"user_id": uid, "points": 2})
+    is_joined, not_joined = await check_joined(user_id)
 
-    not_joined = await check_join(uid)
-
-    if not_joined:
-        await msg.reply(
-            "<b>🚫 𝐀𝐂𝐂𝐄𝐒𝐒 𝐃𝐄𝐍𝐈𝐄𝐃</b>\n\n"
-            "👉 𝐀𝐥𝐥 𝐜𝐡𝐚𝐧𝐧𝐞𝐥𝐬 𝐣𝐨𝐢𝐧 𝐤𝐚𝐫𝐨",
-            reply_markup=force_kb(not_joined)
-        )
+    if not is_joined:
+        kb = InlineKeyboardMarkup(inline_keyboard=[])
+        for idx, (_, url) in enumerate(not_joined):
+            kb.inline_keyboard.append([InlineKeyboardButton(text=f"Join {idx+1}", url=url)])
+        kb.inline_keyboard.append([InlineKeyboardButton(text="Check", callback_data=f"check_join_{args or 0}")])
+        await message.reply("Join channels first!", reply_markup=kb)
         return
 
-    bal = users.find_one({"user_id": uid})["points"]
+    await process_new_user_and_welcome(user_id, message, args)
 
-    await msg.reply(
-        f"<b>👋 𝐖𝐄𝐋𝐂𝐎𝐌𝐄</b>\n💰 𝐁𝐚𝐥𝐚𝐧𝐜𝐞: {bal}",
-        reply_markup=menu(uid)
+# ==========================================
+# 🎁 DAILY BONUS
+# ==========================================
+@dp.callback_query(F.data == "menu_daily")
+async def daily_bonus(call: CallbackQuery):
+    user = await users.find_one({"user_id": call.from_user.id})
+    now = datetime.now()
+
+    if user.get("last_bonus"):
+        if now < user["last_bonus"] + timedelta(hours=24):
+            await call.answer("Come later", show_alert=True)
+            return
+
+    await users.update_one(
+        {"user_id": call.from_user.id},
+        {"$set": {"last_bonus": now}, "$inc": {"points": 2}}
     )
 
-# ========= CHECK =========
-@dp.callback_query(F.data == "check_join")
-async def check(call: CallbackQuery):
-    uid = call.from_user.id
-    not_joined = await check_join(uid)
+    await call.message.edit_text("Bonus Claimed!", reply_markup=main_menu_kb(call.from_user.id))
 
-    if not_joined:
-        await call.answer("❌ 𝐉𝐨𝐢𝐧 𝐚𝐥𝐥", show_alert=True)
-    else:
-        bal = users.find_one({"user_id": uid})["points"]
-        await call.message.edit_text(
-            f"<b>✅ 𝐀𝐂𝐂𝐄𝐒𝐒 𝐆𝐑𝐀𝐍𝐓𝐄𝐃</b>\n💰 {bal}",
-            reply_markup=menu(uid)
-        )
-
-# ========= ADD CHANNEL =========
-@dp.message(F.text.startswith("/addchannel"))
-async def add_channel(msg: Message):
-    if msg.from_user.id not in ADMIN_IDS:
-        return
-    try:
-        _, chat_id, url = msg.text.split()
-        channels.insert_one({"chat_id": int(chat_id), "url": url})
-        await msg.reply("✅ 𝐂𝐇𝐀𝐍𝐍𝐄𝐋 𝐀𝐃𝐃𝐄𝐃")
-    except:
-        await msg.reply("Use:\n/addchannel -100xxxx https://t.me/xxx")
-
-# ========= STORE =========
-@dp.callback_query(F.data == "store")
-async def store_show(call: CallbackQuery):
-    not_joined = await check_join(call.from_user.id)
-    if not_joined:
-        await call.message.answer("⚠️ 𝐉𝐨𝐢𝐧 𝐟𝐢𝐫𝐬𝐭", reply_markup=force_kb(not_joined))
-        return
-
-    items = list(store.find())
-    if not items:
-        await call.answer("𝐄𝐦𝐩𝐭𝐲", show_alert=True)
-        return
-
+# ==========================================
+# 🛍️ STORE
+# ==========================================
+@dp.callback_query(F.data == "menu_store")
+async def store_menu(call: CallbackQuery):
     kb = []
-    for i in items:
-        kb.append([InlineKeyboardButton(
-            text=f"{i['name']} - {i['price']}",
-            callback_data=f"buy_{i['_id']}"
-        )])
 
-    await call.message.edit_text("🛍 𝐒𝐓𝐎𝐑𝐄", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    async for item in store.find():
+        kb.append([
+            InlineKeyboardButton(
+                text=f"👤 {item['username']} [Yr:{item['year']}] - {item['price']}",
+                callback_data=f"buy_{item['_id']}"
+            )
+        ])
 
-# ========= BUY =========
+    kb.append([InlineKeyboardButton(text="🔙 Back", callback_data="back_main")])
+
+    await call.message.edit_text("Select account:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+
+# ==========================================
+# 💰 BUY
+# ==========================================
 @dp.callback_query(F.data.startswith("buy_"))
-async def buy(call: CallbackQuery):
-    uid = call.from_user.id
+async def buy_item(call: CallbackQuery):
+    item_id = call.data.split("_")[1]
+    item = await store.find_one({"_id": ObjectId(item_id)})
+    user = await users.find_one({"user_id": call.from_user.id})
 
-    not_joined = await check_join(uid)
-    if not_joined:
-        await call.message.answer("⚠️ 𝐉𝐨𝐢𝐧 𝐟𝐢𝐫𝐬𝐭", reply_markup=force_kb(not_joined))
+    if not item:
+        await call.answer("Already sold", show_alert=True)
         return
-
-    item = store.find_one({"_id": ObjectId(call.data.split("_")[1])})
-    user = users.find_one({"user_id": uid})
 
     if user["points"] < item["price"]:
-        await call.answer("❌ 𝐍𝐨 𝐏𝐨𝐢𝐧𝐭𝐬", show_alert=True)
+        await call.answer("Not enough points", show_alert=True)
         return
 
-    users.update_one({"user_id": uid}, {"$inc": {"points": -item["price"]}})
-    store.delete_one({"_id": item["_id"]})
+    await users.update_one({"user_id": call.from_user.id}, {"$inc": {"points": -item["price"]}})
+    await store.delete_one({"_id": ObjectId(item_id)})
 
-    await call.message.edit_text(f"✅ 𝐁𝐎𝐔𝐆𝐇𝐓\n{item['name']}")
+    await call.message.edit_text(
+        f"🎉 Purchase Done!\n\n👤 {item['username']}\n📧 {item['gmail']}\n📅 {item['year']}",
+        reply_markup=main_menu_kb(call.from_user.id)
+    )
 
-# ========= ADD ITEM =========
-@dp.callback_query(F.data == "add")
-async def add_item(call: CallbackQuery):
-    if call.from_user.id not in ADMIN_IDS:
+# ==========================================
+# 🎟️ REDEEM
+# ==========================================
+@dp.message(UserRedeem.waiting_for_code)
+async def redeem(message: Message, state: FSMContext):
+    code = await redeem_codes.find_one({"code": message.text})
+
+    if not code or code["uses_left"] <= 0:
+        await message.reply("Invalid code")
         return
-    await call.message.answer("Send: name price")
 
-@dp.message()
-async def save_item(msg: Message):
-    if msg.from_user.id not in ADMIN_IDS:
+    already = await claimed_codes.find_one({
+        "user_id": message.from_user.id,
+        "code": message.text
+    })
+
+    if already:
+        await message.reply("Already used")
         return
-    try:
-        name, price = msg.text.split()
-        store.insert_one({"name": name, "price": int(price)})
-        await msg.reply("✅ 𝐀𝐃𝐃𝐄𝐃")
-    except:
-        pass
 
-# ========= POINTS =========
-@dp.callback_query(F.data == "points")
-async def points(call: CallbackQuery):
-    bal = users.find_one({"user_id": call.from_user.id})["points"]
-    await call.answer(f"{bal} 𝐏𝐨𝐢𝐧𝐭𝐬", show_alert=True)
+    await redeem_codes.update_one({"code": message.text}, {"$inc": {"uses_left": -1}})
+    await claimed_codes.insert_one({"user_id": message.from_user.id, "code": message.text})
+    await users.update_one({"user_id": message.from_user.id}, {"$inc": {"points": code["points"]}})
 
-# ========= RUN =========
+    await message.reply("Redeemed!")
+    await state.clear()
+
+# ==========================================
+# 🚀 RUN
+# ==========================================
 async def main():
     await dp.start_polling(bot)
 
