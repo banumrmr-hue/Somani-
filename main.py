@@ -1,4 +1,4 @@
-import os
+import os 
 os.system("pip install motor")
 os.system("pip install bson")
 import random
@@ -62,94 +62,85 @@ class AdminBroadcast(StatesGroup):
 class UserRedeem(StatesGroup):
     waiting_for_code = State()
 
-# ========= FORCE JOIN =========
-async def check_joined(user_id):
-    not_joined = []
-    async for ch in channels.find():
-        try:
-            member = await bot.get_chat_member(chat_id=ch["chat_id"], user_id=user_id)
-            if member.status not in ['member','administrator','creator']:
-                not_joined.append((ch["chat_id"], ch["url"]))
-        except:
-            not_joined.append((ch["chat_id"], ch["url"]))
-    return len(not_joined)==0, not_joined
-
 # ========= MENU =========
 def main_menu_kb(user_id):
     kb = [
-        [InlineKeyboardButton(text="🛍️ STORE", callback_data="menu_store"),
-         InlineKeyboardButton(text="🎁 BONUS", callback_data="menu_daily")],
-        [InlineKeyboardButton(text="🎟️ REDEEM", callback_data="menu_redeem"),
-         InlineKeyboardButton(text="💳 POINTS", callback_data="menu_points")],
-        [InlineKeyboardButton(text="🔗 REFER", callback_data="menu_refer"),
-         InlineKeyboardButton(text="📞 SUPPORT", url=SUPPORT_LINK)]
+        [InlineKeyboardButton(text="🛍️ 𝙎𝙏𝙊𝙍𝙀", callback_data="menu_store"),
+         InlineKeyboardButton(text="🎁 𝘿𝘼𝙄𝙇𝙔 𝘽𝙊𝙉𝙐𝙎", callback_data="menu_daily")],
+        [InlineKeyboardButton(text="🎟️ 𝙍𝙀𝘿𝙀𝙀𝙈", callback_data="menu_redeem"),
+         InlineKeyboardButton(text="💳 𝙈𝙔 𝙋𝙊𝙄𝙉𝙏𝙎", callback_data="menu_points")],
+        [InlineKeyboardButton(text="🔗 𝙍𝙀𝙁𝙀𝙍", callback_data="menu_refer"),
+         InlineKeyboardButton(text="📞 𝙎𝙐𝙋𝙋𝙊𝙍𝙏", url=SUPPORT_LINK)]
     ]
 
     if user_id in ADMIN_IDS:
-        kb.append([InlineKeyboardButton(text="👑 ADMIN 👑", callback_data="ignore")])
-        kb.append([InlineKeyboardButton(text="ADD ACCOUNT", callback_data="admin_add"),
-                   InlineKeyboardButton(text="GEN CODE", callback_data="admin_gen")])
-        kb.append([InlineKeyboardButton(text="ADD CH", callback_data="admin_addch"),
-                   InlineKeyboardButton(text="DEL CH", callback_data="admin_delch")])
-        kb.append([InlineKeyboardButton(text="BROADCAST", callback_data="admin_cast"),
-                   InlineKeyboardButton(text="STATS", callback_data="admin_stats")])
+        kb.append([InlineKeyboardButton(text="👑 ——— 𝘼𝘿𝙈𝙄𝙉 𝘾𝙊𝙉𝙏𝙍𝙊𝙇𝙎 ——— 👑", callback_data="ignore")])
+        kb.append([
+            InlineKeyboardButton(text="➕ 𝘼𝘿𝘿 𝘼𝘾𝘾𝙊𝙐𝙉𝙏", callback_data="admin_add"),
+            InlineKeyboardButton(text="🎟️ 𝙂𝙀𝙉 𝘾𝙊𝘿𝙀", callback_data="admin_gen")
+        ])
+        kb.append([
+            InlineKeyboardButton(text="➕ 𝘼𝘿𝘿 𝘾𝙃𝘼𝙉𝙉𝙀𝙇", callback_data="admin_addch"),
+            InlineKeyboardButton(text="➖ 𝘿𝙀𝙇𝙀𝙏𝙀 𝘾𝙃𝘼𝙉𝙉𝙀𝙇", callback_data="admin_delch")
+        ])
+        kb.append([
+            InlineKeyboardButton(text="📢 𝘽𝙍𝙊𝘼𝘿𝘾𝘼𝙎𝙏", callback_data="admin_cast"),
+            InlineKeyboardButton(text="📊 𝙎𝙏𝘼𝙏𝙎", callback_data="admin_stats")
+        ])
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 # ========= START =========
 @dp.message(CommandStart())
-async def start_cmd(message: Message, command: CommandObject):
-    user_id = message.from_user.id
-
-    user = await users.find_one({"user_id": user_id})
+async def start(message: Message):
+    user = await users.find_one({"user_id": message.from_user.id})
     if not user:
-        await users.insert_one({"user_id": user_id, "points": 2, "last_bonus": None})
+        await users.insert_one({"user_id": message.from_user.id, "points": 2, "last_bonus": None})
 
-    user = await users.find_one({"user_id": user_id})
+    user = await users.find_one({"user_id": message.from_user.id})
 
-    await message.reply(f"Welcome! Balance: {user['points']} 🪙",
-                        reply_markup=main_menu_kb(user_id))
+    await message.reply(
+        f"<b>WELCOME</b>\nBalance: {user['points']} 🪙",
+        reply_markup=main_menu_kb(message.from_user.id)
+    )
 
 # ========= MENU =========
 @dp.callback_query(F.data.startswith("menu_"))
-async def menu_handler(call: CallbackQuery, state: FSMContext):
-    user_id = call.from_user.id
+async def menu(call: CallbackQuery, state: FSMContext):
+    user = await users.find_one({"user_id": call.from_user.id})
     action = call.data.split("_")[1]
 
-    user = await users.find_one({"user_id": user_id})
+    if action == "store":
+        kb = []
+        async for item in store.find():
+            kb.append([InlineKeyboardButton(
+                text=f"👤 {item['username']} [Yr:{item['year']}] - {item['price']} 🪙",
+                callback_data=f"buy_{item['_id']}"
+            )])
+        kb.append([InlineKeyboardButton(text="🔙 BACK", callback_data="back")])
+        await call.message.edit_text("🛍️ STORE", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
-    if action == "daily":
+    elif action == "daily":
         now = datetime.now()
         if user.get("last_bonus") and now < user["last_bonus"] + timedelta(hours=24):
             await call.answer("Come later", show_alert=True)
             return
 
-        await users.update_one({"user_id": user_id},
-                               {"$set": {"last_bonus": now},
-                                "$inc": {"points": 2}})
-        await call.message.edit_text("Bonus Claimed!", reply_markup=main_menu_kb(user_id))
+        await users.update_one({"user_id": call.from_user.id},
+                               {"$set": {"last_bonus": now}, "$inc": {"points": 2}})
+        await call.message.edit_text("🎁 BONUS CLAIMED", reply_markup=main_menu_kb(call.from_user.id))
 
     elif action == "points":
-        await call.answer(f"Balance: {user['points']} 🪙", show_alert=True)
+        await call.answer(f"{user['points']} 🪙", show_alert=True)
 
     elif action == "refer":
         me = await bot.get_me()
-        link = f"https://t.me/{me.username}?start={user_id}"
-        await call.message.edit_text(link, reply_markup=main_menu_kb(user_id))
+        link = f"https://t.me/{me.username}?start={call.from_user.id}"
+        await call.message.edit_text(link, reply_markup=main_menu_kb(call.from_user.id))
 
     elif action == "redeem":
         await state.set_state(UserRedeem.waiting_for_code)
-        await call.message.edit_text("Send code:")
-
-    elif action == "store":
-        kb = []
-        async for item in store.find():
-            kb.append([InlineKeyboardButton(
-                text=f"{item['username']} ({item['year']}) - {item['price']}",
-                callback_data=f"buy_{item['_id']}"
-            )])
-        kb.append([InlineKeyboardButton(text="Back", callback_data="back")])
-        await call.message.edit_text("Store:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        await call.message.edit_text("Send code")
 
 # ========= BUY =========
 @dp.callback_query(F.data.startswith("buy_"))
@@ -168,8 +159,10 @@ async def buy(call: CallbackQuery):
     await users.update_one({"user_id": call.from_user.id}, {"$inc": {"points": -item["price"]}})
     await store.delete_one({"_id": item["_id"]})
 
-    await call.message.edit_text(f"Bought:\n{item['username']}\n{item['gmail']}",
-                                 reply_markup=main_menu_kb(call.from_user.id))
+    await call.message.edit_text(
+        f"✅ PURCHASE SUCCESS\n\n👤 {item['username']}\n📧 {item['gmail']}",
+        reply_markup=main_menu_kb(call.from_user.id)
+    )
 
 # ========= ADMIN =========
 @dp.callback_query(F.data.startswith("admin_"))
@@ -183,6 +176,10 @@ async def admin(call: CallbackQuery, state: FSMContext):
         await state.set_state(AdminAddProduct.waiting_for_user)
         await call.message.edit_text("Send username")
 
+    elif action == "gen":
+        await state.set_state(AdminGenCode.waiting_for_points)
+        await call.message.edit_text("Send points")
+
     elif action == "addch":
         await state.set_state(AdminAddChannel.waiting_for_chat_id)
         await call.message.edit_text("Send chat id")
@@ -191,18 +188,14 @@ async def admin(call: CallbackQuery, state: FSMContext):
         await state.set_state(AdminDelChannel.waiting_for_chat_id)
         await call.message.edit_text("Send chat id to delete")
 
-    elif action == "gen":
-        await state.set_state(AdminGenCode.waiting_for_points)
-        await call.message.edit_text("Send points")
-
     elif action == "cast":
         await state.set_state(AdminBroadcast.waiting_for_msg)
-        await call.message.edit_text("Send message")
+        await call.message.edit_text("Send broadcast")
 
     elif action == "stats":
         u = await users.count_documents({})
         s = await store.count_documents({})
-        await call.message.edit_text(f"Users:{u}\nStore:{s}",
+        await call.message.edit_text(f"Users: {u}\nStore: {s}",
                                      reply_markup=main_menu_kb(call.from_user.id))
 
 # ========= ADD PRODUCT =========
@@ -210,19 +203,19 @@ async def admin(call: CallbackQuery, state: FSMContext):
 async def add1(m: Message, s: FSMContext):
     await s.update_data(username=m.text)
     await s.set_state(AdminAddProduct.waiting_for_gmail)
-    await m.reply("gmail")
+    await m.reply("Send Gmail")
 
 @dp.message(AdminAddProduct.waiting_for_gmail)
 async def add2(m: Message, s: FSMContext):
     await s.update_data(gmail=m.text)
     await s.set_state(AdminAddProduct.waiting_for_year)
-    await m.reply("year")
+    await m.reply("Send Year")
 
 @dp.message(AdminAddProduct.waiting_for_year)
 async def add3(m: Message, s: FSMContext):
     await s.update_data(year=m.text)
     await s.set_state(AdminAddProduct.waiting_for_price)
-    await m.reply("price")
+    await m.reply("Send Price")
 
 @dp.message(AdminAddProduct.waiting_for_price)
 async def add4(m: Message, s: FSMContext):
@@ -233,7 +226,7 @@ async def add4(m: Message, s: FSMContext):
         "year": data["year"],
         "price": int(m.text)
     })
-    await m.reply("Added!", reply_markup=main_menu_kb(m.from_user.id))
+    await m.reply("✅ ADDED", reply_markup=main_menu_kb(m.from_user.id))
     await s.clear()
 
 # ========= RUN =========
