@@ -207,7 +207,63 @@ async def admin(call: CallbackQuery, state: FSMContext):
     elif action == "cast":
         await state.set_state(AdminBroadcast.msg)
         await call.message.edit_text("Send broadcast msg")
+# ================= GEN CODE =================
+@dp.message(AdminGenCode.points)
+async def gen_points(m: Message, state: FSMContext):
+    try:
+        await state.update_data(points=int(m.text))
+        await state.set_state(AdminGenCode.uses)
+        await m.answer("Send number of uses:")
+    except:
+        await m.answer("Send valid number")
 
+@dp.message(AdminGenCode.uses)
+async def gen_uses(m: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+        await redeem_codes.insert_one({
+            "code": code,
+            "points": data["points"],
+            "uses_left": int(m.text)
+        })
+
+        await m.answer(f"✅ Code: <code>{code}</code>", reply_markup=main_kb(m.from_user.id))
+        await state.clear()
+    except:
+        await m.answer("Invalid uses number")
+
+
+# ================= ADD CHANNEL =================
+@dp.message(AdminAddChannel.chat_id)
+async def add_ch_id(m: Message, state: FSMContext):
+    await state.update_data(chat_id=m.text)
+    await state.set_state(AdminAddChannel.url)
+    await m.answer("Send Channel Link:")
+
+@dp.message(AdminAddChannel.url)
+async def add_ch_url(m: Message, state: FSMContext):
+    data = await state.get_data()
+
+    await channels.insert_one({
+        "chat_id": data["chat_id"],
+        "url": m.text
+    })
+
+    await m.answer("✅ Channel Added", reply_markup=main_kb(m.from_user.id))
+    await state.clear()
+
+
+# ================= DELETE CHANNEL =================
+@dp.message(AdminDelChannel.chat_id)
+async def del_ch(m: Message, state: FSMContext):
+    await channels.delete_one({"chat_id": m.text.strip()})
+
+    await m.answer("✅ Channel Deleted", reply_markup=main_kb(m.from_user.id))
+    await state.clear()
+    
 # ================= RUN =================
 async def main():
     await dp.start_polling(bot)
