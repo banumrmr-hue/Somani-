@@ -1,3 +1,5 @@
+import os
+os.system("pip install motor")
 import random
 import string
 import html
