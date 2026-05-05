@@ -77,40 +77,57 @@ async def start(msg: Message, command: CommandObject):
     uid = msg.from_user.id
     ref = command.args
 
+    # ===== FORCE SUB CHECK =====
     if not await check_sub(uid):
         c.execute("SELECT chat_id FROM channels")
         ch = c.fetchall()
 
-        kb = [[InlineKeyboardButton("📢 Join", url=f"https://t.me/{i[0].replace('@','')}")] for i in ch]
-        kb.append([InlineKeyboardButton("🔄 Check","start_again")])
+        kb = [[InlineKeyboardButton(
+            text="📢 Join",
+            url=f"https://t.me/{i[0].replace('@','')}"
+        )] for i in ch]
 
-        await msg.answer("❌ Join channels first", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        kb.append([InlineKeyboardButton(text="🔄 Check Again", callback_data="start_again")])
+
+        await msg.answer(
+            "❌ Join channels first",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
         return
 
+    # ===== REF SYSTEM =====
     ref_id = None
     if ref and ref.isdigit():
         ref_id = int(ref)
         if ref_id == uid:
             ref_id = None
 
+    # insert user safely
     c.execute("""
-        INSERT INTO users(user_id,ref_by)
+        INSERT INTO users(user_id, ref_by)
         VALUES(%s,%s)
         ON CONFLICT DO NOTHING
-    """,(uid,ref_id))
+    """, (uid, ref_id))
 
-    # LEVEL 1
+    # ===== LEVEL 1 =====
     if ref_id:
-        c.execute("UPDATE users SET points=points+5 WHERE user_id=%s",(ref_id,))
+        c.execute("UPDATE users SET points = points + 5 WHERE user_id = %s", (ref_id,))
 
-        # LEVEL 2
-        c.execute("SELECT ref_by FROM users WHERE user_id=%s",(ref_id,))
+        # ===== LEVEL 2 =====
+        c.execute("SELECT ref_by FROM users WHERE user_id=%s", (ref_id,))
         lvl2 = c.fetchone()
-        if lvl2 and lvl2[0]:
-            c.execute("UPDATE users SET points=points+2 WHERE user_id=%s",(lvl2[0],))
 
-    c.execute("SELECT points FROM users WHERE user_id=%s",(uid,))
-    await msg.answer(ui("Welcome",f"💰 {c.fetchone()[0]} 🪙"),reply_markup=menu(uid))
+        if lvl2 and lvl2[0]:
+            c.execute("UPDATE users SET points = points + 2 WHERE user_id = %s", (lvl2[0],))
+
+    # ===== BALANCE =====
+    c.execute("SELECT points FROM users WHERE user_id=%s", (uid,))
+    bal = c.fetchone()[0]
+
+    await msg.answer(
+        ui("Welcome", f"💰 {bal} 🪙"),
+        reply_markup=menu(uid)
+    )
 
 # ===== RECHECK =====
 @dp.callback_query(F.data=="start_again")
