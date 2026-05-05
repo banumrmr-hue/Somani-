@@ -1,3 +1,6 @@
+import os
+os.system("pip install motor")
+os.system("pip install bson")
 import asyncio
 import random
 import string
