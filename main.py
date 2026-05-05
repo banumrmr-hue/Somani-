@@ -36,6 +36,7 @@ c.execute("CREATE TABLE IF NOT EXISTS claimed_codes(user_id BIGINT,code TEXT,PRI
 c.execute("CREATE TABLE IF NOT EXISTS channels(chat_id TEXT PRIMARY KEY)")
 
 # ===== STATES =====
+
 class Redeem(StatesGroup):
     code = State()
 
@@ -51,6 +52,13 @@ class AddChannel(StatesGroup):
 
 class DelChannel(StatesGroup):
     chat_id = State()
+
+# 👇 YEH YAHI ADD KARNA HAI
+class AddItem(StatesGroup):
+    username = State()
+    gmail = State()
+    year = State()
+    price = State()
 
 # ===== MENU =====
 def menu(uid):
@@ -182,16 +190,53 @@ async def admin(call:CallbackQuery):
     if call.from_user.id not in ADMIN_IDS: return
 
     kb = [
-        [InlineKeyboardButton(text="🎟 GEN CODE", callback_data="gen")],
-        [InlineKeyboardButton(text="📢 BROADCAST", callback_data="bc")],
-        [InlineKeyboardButton(text="📊 STATS", callback_data="stats")],
-        [InlineKeyboardButton(text="➕ ADD CHANNEL", callback_data="add_ch")],
-        [InlineKeyboardButton(text="❌ DELETE CHANNEL", callback_data="del_ch")]
-    ]
+    [InlineKeyboardButton(text="🎟 GEN CODE", callback_data="gen")],
+    [InlineKeyboardButton(text="📢 BROADCAST", callback_data="bc")],
+    [InlineKeyboardButton(text="📊 STATS", callback_data="stats")],
+    [InlineKeyboardButton(text="➕ ADD ITEM", callback_data="add_item")],
+    [InlineKeyboardButton(text="➕ ADD CHANNEL", callback_data="add_ch")],
+    [InlineKeyboardButton(text="❌ DELETE CHANNEL", callback_data="del_ch")]
+]
 
     await call.message.edit_text(ui("👑 Admin Panel","Manage bot"),
     reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    
+# ===== ADD ITEM =====
+@dp.callback_query(F.data=="add_item")
+async def add_item_start(call:CallbackQuery, state:FSMContext):
+    await state.set_state(AddItem.username)
+    await call.message.edit_text("👤 Send Username")
 
+@dp.message(AddItem.username)
+async def add_item_user(msg:Message, state:FSMContext):
+    await state.update_data(username=msg.text)
+    await state.set_state(AddItem.gmail)
+    await msg.reply("📧 Send Gmail")
+
+@dp.message(AddItem.gmail)
+async def add_item_gmail(msg:Message, state:FSMContext):
+    await state.update_data(gmail=msg.text)
+    await state.set_state(AddItem.year)
+    await msg.reply("📅 Send Year")
+
+@dp.message(AddItem.year)
+async def add_item_year(msg:Message, state:FSMContext):
+    await state.update_data(year=msg.text)
+    await state.set_state(AddItem.price)
+    await msg.reply("💰 Send Price")
+
+@dp.message(AddItem.price)
+async def add_item_price(msg:Message, state:FSMContext):
+    data = await state.get_data()
+
+    c.execute(
+        "INSERT INTO store(username, gmail, year, price) VALUES(%s,%s,%s,%s)",
+        (data['username'], data['gmail'], data['year'], int(msg.text))
+    )
+
+    await msg.reply("✅ Item Added Successfully")
+    await state.clear()
+    
 # ===== ADD CHANNEL =====
 @dp.callback_query(F.data=="add_ch")
 async def add_channel(call:CallbackQuery, state:FSMContext):
