@@ -167,9 +167,38 @@ async def menu(call: CallbackQuery, state: FSMContext):
                   (pts+2, now, user_id))
         await call.message.edit_text(f"+2 bonus! Total: {pts+2}")
 
-    elif action == "redeem":
-        await state.set_state(UserRedeem.waiting_for_code)
-        await call.message.edit_text("Send code:")
+    @dp.message(UserRedeem.waiting_for_code)
+async def redeem(message: Message, state: FSMContext):
+    code = message.text.strip().upper()
+    user_id = message.from_user.id
+
+    c.execute("SELECT points, uses_left FROM redeem_codes WHERE code=%s", (code,))
+    res = c.fetchone()
+
+    if not res:
+        await message.reply("❌ Invalid code")
+        await state.clear()
+        return
+
+    pts, uses = res
+
+    if uses <= 0:
+        await message.reply("❌ Code expired")
+        await state.clear()
+        return
+
+    c.execute("SELECT 1 FROM claimed_codes WHERE user_id=%s AND code=%s", (user_id, code))
+    if c.fetchone():
+        await message.reply("❌ Already claimed")
+        await state.clear()
+        return
+
+    c.execute("UPDATE redeem_codes SET uses_left = uses_left - 1 WHERE code=%s", (code,))
+    c.execute("INSERT INTO claimed_codes (user_id, code) VALUES (%s, %s)", (user_id, code))
+    c.execute("UPDATE users SET points = points + %s WHERE user_id=%s", (pts, user_id))
+
+    await message.reply(f"✅ Redeemed! +{pts} 🪙")
+    await state.clear()
 
 # ==========================================
 # 🛒 BUY
