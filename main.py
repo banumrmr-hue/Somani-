@@ -7,11 +7,16 @@ from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 API_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = [7418454273, 7672413819]
 
-bot = Bot(token=API_TOKEN, parse_mode="HTML")
+bot = Bot(
+    token=API_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+
 dp = Dispatcher(storage=MemoryStorage())
 
 # ===== UI =====
