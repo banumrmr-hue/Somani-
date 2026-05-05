@@ -229,9 +229,15 @@ async def add_item_year(msg:Message, state:FSMContext):
 async def add_item_price(msg:Message, state:FSMContext):
     data = await state.get_data()
 
+    try:
+        price = int(msg.text)
+    except:
+        await msg.reply("❌ Send valid number")
+        return
+
     c.execute(
         "INSERT INTO store(username, gmail, year, price) VALUES(%s,%s,%s,%s)",
-        (data['username'], data['gmail'], data['year'], int(msg.text))
+        (data['username'], data['gmail'], data['year'], price)
     )
 
     await msg.reply("✅ Item Added Successfully")
