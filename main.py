@@ -1,13 +1,11 @@
-#hi 
-import os
-os.system("pip install motor")
-os.system("pip install bson")
-import asyncio
 import random
 import string
 import html
+import asyncio
+import os
 from datetime import datetime, timedelta
 
+import psycopg2
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, CommandObject
@@ -17,148 +15,129 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
-
-# ================= CONFIG =================
-API_TOKEN = "8628992445:AAE_7n3Jjru_71_b9LKdfeMF01mc7wLS_YY"
-MONGO_URL = "mongodb+srv://adminbot:admin123@cluster0.tnvj2pr.mongodb.net/?retryWrites=true&w=majority"
-
+# ==========================================
+# ⚙️ CONFIGURATION
+# ==========================================
+API_TOKEN = '8628992445:AAE_7n3Jjru_71_b9LKdfeMF01mc7wLS_YY'  # ⚠️ BotFather se naya token lo
 ADMIN_IDS = [7418454273, 7672413819]
-SUPPORT_LINK = "https://t.me/somani_07x"
+SUPPORT_LINK = 'https://t.me/somani_07x'
 
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# ================= DB =================
-client = AsyncIOMotorClient(MONGO_URL)
-db = client["bot_db"]
-referrals = db.referrals
-users = db.users
-store = db.store
-channels = db.channels
-redeem_codes = db.redeem_codes
-claimed_codes = db.claimed_codes
+# ==========================================
+# 🗄️ DATABASE (PostgreSQL)
+# ==========================================
+DATABASE_URL = os.getenv("postgresql://bot_db_1qks_user:wNPMfVFaWMnlXvNtGgQcqikeFp2z8akp@dpg-d7srll6gvqtc739vtvjg-a/bot_db_1qks")
 
-# ================= STATES =================
+conn = psycopg2.connect(DATABASE_URL)
+conn.autocommit = True  # commits auto
+c = conn.cursor()
+
+# Tables (PostgreSQL syntax)
+c.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    user_id BIGINT PRIMARY KEY,
+    points INTEGER DEFAULT 2,
+    last_bonus TIMESTAMP
+);
+''')
+
+c.execute('''
+CREATE TABLE IF NOT EXISTS store (
+    id SERIAL PRIMARY KEY,
+    username TEXT,
+    gmail TEXT,
+    year TEXT,
+    price INTEGER
+);
+''')
+
+c.execute('''
+CREATE TABLE IF NOT EXISTS channels (
+    chat_id TEXT PRIMARY KEY,
+    url TEXT
+);
+''')
+
+c.execute('''
+CREATE TABLE IF NOT EXISTS redeem_codes (
+    code TEXT PRIMARY KEY,
+    points INTEGER,
+    uses_left INTEGER
+);
+''')
+
+c.execute('''
+CREATE TABLE IF NOT EXISTS claimed_codes (
+    user_id BIGINT,
+    code TEXT,
+    PRIMARY KEY (user_id, code)
+);
+''')
+
+# ==========================================
+# 🧠 STATES
+# ==========================================
 class AdminAddProduct(StatesGroup):
-    user = State()
-    gmail = State()
-    year = State()
-    price = State()
-
-class AdminAddChannel(StatesGroup):
-    chat_id = State()
-    url = State()
-
-class AdminDelChannel(StatesGroup):
-    chat_id = State()
-
-class AdminGenCode(StatesGroup):
-    points = State()
-    uses = State()
-
-class AdminBroadcast(StatesGroup):
-    msg = State()
+    waiting_for_user = State()
+    waiting_for_gmail = State()
+    waiting_for_year = State()
+    waiting_for_price = State()
 
 class UserRedeem(StatesGroup):
-    code = State()
+    waiting_for_code = State()
 
-# ================= KEYBOARD =================
-def main_kb(uid):
+# ==========================================
+# 🛡️ KEYBOARD
+# ==========================================
+def main_menu_kb(user_id: int):
     kb = [
         [InlineKeyboardButton(text="🛍️ STORE", callback_data="menu_store"),
-         InlineKeyboardButton(text="🎁 DAILY", callback_data="menu_daily")],
+         InlineKeyboardButton(text="🎁 BONUS", callback_data="menu_daily")],
         [InlineKeyboardButton(text="🎟️ REDEEM", callback_data="menu_redeem"),
-         InlineKeyboardButton(text="💳 POINTS", callback_data="menu_points")],
-        [InlineKeyboardButton(text="🔗 REFER", callback_data="menu_refer"),
-         InlineKeyboardButton(text="📞 SUPPORT", url=SUPPORT_LINK)]
+         InlineKeyboardButton(text="💳 POINTS", callback_data="menu_points")]
     ]
 
-    if uid in ADMIN_IDS:
-        kb += [
-            [InlineKeyboardButton(text="👑 ADMIN", callback_data="ignore")],
-            [InlineKeyboardButton(text="➕ ADD ACC", callback_data="admin_add"),
-             InlineKeyboardButton(text="🎟️ GEN CODE", callback_data="admin_gen")],
-            [InlineKeyboardButton(text="➕ ADD CH", callback_data="admin_addch"),
-             InlineKeyboardButton(text="➖ DEL CH", callback_data="admin_delch")],
-            [InlineKeyboardButton(text="📢 BROADCAST", callback_data="admin_cast"),
-             InlineKeyboardButton(text="📊 STATS", callback_data="admin_stats")]
-        ]
+    if user_id in ADMIN_IDS:
+        kb.append([InlineKeyboardButton(text="➕ ADD ITEM", callback_data="admin_add")])
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
+# ==========================================
+# 🚀 START
+# ==========================================
 @dp.message(CommandStart())
-async def start(m: Message, command: CommandObject):
-    uid = m.from_user.id
-    ref = command.args
+async def start(message: Message, command: CommandObject):
+    user_id = message.from_user.id
 
-    user = await users.find_one({"user_id": uid})
+    c.execute("SELECT * FROM users WHERE user_id=%s", (user_id,))
+    user = c.fetchone()
 
     if not user:
-        await users.insert_one({
-            "user_id": uid,
-            "points": 2,
-            "last_bonus": None
-        })
+        c.execute("INSERT INTO users (user_id, points) VALUES (%s, %s)", (user_id, 2))
 
-        # ✅ Referral system
-        if ref and ref.isdigit() and int(ref) != uid:
-            ref_id = int(ref)
+    c.execute("SELECT points FROM users WHERE user_id=%s", (user_id,))
+    bal = c.fetchone()[0]
 
-            already = await db.referrals.find_one({"new_user": uid})
+    await message.reply(f"Welcome! Balance: {bal} 🪙", reply_markup=main_menu_kb(user_id))
 
-            if not already:
-                await db.referrals.insert_one({
-                    "new_user": uid,
-                    "referrer": ref_id
-                })
-
-                await users.update_one(
-                    {"user_id": ref_id},
-                    {"$inc": {"points": 5}}
-                )
-
-                try:
-                    await bot.send_message(ref_id, "🎉 Referral +5 🪙")
-                except:
-                    pass
-
-    user = await users.find_one({"user_id": uid})
-
-    await m.answer(
-        f"<b>Welcome</b>\nPoints: {user['points']}",
-        reply_markup=main_kb(uid)
-    )
-
-# ================= MENU =================
+# ==========================================
+# 👤 USER MENU
+# ==========================================
 @dp.callback_query(F.data.startswith("menu_"))
 async def menu(call: CallbackQuery, state: FSMContext):
-    uid = call.from_user.id
+    user_id = call.from_user.id
     action = call.data.split("_")[1]
 
     if action == "points":
-        user = await users.find_one({"user_id": uid})
-        await call.answer(f"{user['points']} 🪙", show_alert=True)
-
-    elif action == "daily":
-        user = await users.find_one({"user_id": uid})
-        now = datetime.now()
-
-        if user.get("last_bonus"):
-            if now < user["last_bonus"] + timedelta(hours=24):
-                await call.answer("Wait 24h", show_alert=True)
-                return
-
-        await users.update_one({"user_id": uid},
-            {"$set": {"last_bonus": now}, "$inc": {"points": 2}})
-
-        await call.message.edit_text("🎁 Bonus Claimed", reply_markup=main_kb(uid))
+        c.execute("SELECT points FROM users WHERE user_id=%s", (user_id,))
+        bal = c.fetchone()[0]
+        await call.answer(f"{bal} 🪙", show_alert=True)
 
     elif action == "store":
-        items = []
-        async for i in store.find():
-            items.append(i)
+        c.execute("SELECT id, username, year, price FROM store")
+        items = c.fetchall()
 
         if not items:
             await call.answer("Store empty", show_alert=True)
@@ -167,136 +146,132 @@ async def menu(call: CallbackQuery, state: FSMContext):
         kb = []
         for i in items:
             kb.append([InlineKeyboardButton(
-                text=f"{i['username']} [{i['year']}] - {i['price']}",
-                callback_data=f"buy_{str(i['_id'])}"
+                text=f"{i[1]} ({i[2]}) - {i[3]}",
+                callback_data=f"buy_{i[0]}"
             )])
 
-        await call.message.edit_text("🛍️ Store", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        await call.message.edit_text("Select item:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
-    elif action == "refer":
-        bot_info = await bot.get_me()
-        link = f"https://t.me/{bot_info.username}?start={uid}"
-        await call.message.edit_text(link, reply_markup=main_kb(uid))
+    elif action == "daily":
+        now = datetime.now()
+        c.execute("SELECT points, last_bonus FROM users WHERE user_id=%s", (user_id,))
+        pts, last = c.fetchone()
+
+        if last:
+            last = last
+            if now < last + timedelta(hours=24):
+                await call.answer("Come later", show_alert=True)
+                return
+
+        c.execute("UPDATE users SET points=%s, last_bonus=%s WHERE user_id=%s",
+                  (pts+2, now, user_id))
+        await call.message.edit_text(f"+2 bonus! Total: {pts+2}")
 
     elif action == "redeem":
-        await state.set_state(UserRedeem.code)
-        await call.message.edit_text("Send code")
+        await state.set_state(UserRedeem.waiting_for_code)
+        await call.message.edit_text("Send code:")
 
-# ================= BUY =================
+# ==========================================
+# 🛒 BUY
+# ==========================================
 @dp.callback_query(F.data.startswith("buy_"))
 async def buy(call: CallbackQuery):
-    uid = call.from_user.id
-    item_id = call.data.split("_")[1]
+    user_id = call.from_user.id
+    item_id = int(call.data.split("_")[1])
 
-    item = await store.find_one({"_id": ObjectId(item_id)})
-    user = await users.find_one({"user_id": uid})
+    c.execute("SELECT points FROM users WHERE user_id=%s", (user_id,))
+    bal = c.fetchone()[0]
+
+    c.execute("SELECT username, gmail, year, price FROM store WHERE id=%s", (item_id,))
+    item = c.fetchone()
 
     if not item:
-        await call.answer("Sold", show_alert=True)
+        await call.answer("Sold!", show_alert=True)
         return
 
-    if user["points"] < item["price"]:
+    username, gmail, year, price = item
+
+    if bal < price:
         await call.answer("Not enough points", show_alert=True)
         return
 
-    await users.update_one({"user_id": uid}, {"$inc": {"points": -item["price"]}})
-    await store.delete_one({"_id": ObjectId(item_id)})
+    c.execute("UPDATE users SET points = points - %s WHERE user_id=%s", (price, user_id))
+    c.execute("DELETE FROM store WHERE id=%s", (item_id,))
 
-    await call.message.edit_text("✅ Purchased", reply_markup=main_kb(uid))
+    await call.message.edit_text(
+        f"Bought!\n{username}\n{gmail}\n{year}",
+        reply_markup=main_menu_kb(user_id)
+    )
 
-# ================= ADMIN =================
-@dp.callback_query(F.data.startswith("admin_"))
-async def admin(call: CallbackQuery, state: FSMContext):
-    if call.from_user.id not in ADMIN_IDS:
+# ==========================================
+# 🎟️ REDEEM
+# ==========================================
+@dp.message(UserRedeem.waiting_for_code)
+async def redeem(message: Message, state: FSMContext):
+    code = message.text.strip()
+    user_id = message.from_user.id
+
+    c.execute("SELECT points, uses_left FROM redeem_codes WHERE code=%s", (code,))
+    res = c.fetchone()
+
+    if not res or res[1] <= 0:
+        await message.reply("Invalid")
+        await state.clear()
         return
 
-    action = call.data.split("_")[1]
+    pts, uses = res
 
-    if action == "stats":
-        u = await users.count_documents({})
-        s = await store.count_documents({})
-        await call.message.edit_text(f"Users: {u}\nItems: {s}", reply_markup=main_kb(call.from_user.id))
+    c.execute("UPDATE redeem_codes SET uses_left = uses_left - 1 WHERE code=%s", (code,))
+    c.execute("UPDATE users SET points = points + %s WHERE user_id=%s", (pts, user_id))
 
-    elif action == "add":
-        await state.set_state(AdminAddProduct.user)
-        await call.message.edit_text("Username?")
+    await message.reply(f"+{pts} 🪙")
+    await state.clear()
 
-    elif action == "gen":
-        await state.set_state(AdminGenCode.points)
-        await call.message.edit_text("Points?")
+# ==========================================
+# 👑 ADMIN ADD ITEM
+# ==========================================
+@dp.callback_query(F.data == "admin_add")
+async def admin_add(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminAddProduct.waiting_for_user)
+    await call.message.edit_text("Username:")
 
-    elif action == "addch":
-        await state.set_state(AdminAddChannel.chat_id)
-        await call.message.edit_text("Channel ID?")
+@dp.message(AdminAddProduct.waiting_for_user)
+async def add_user(message: Message, state: FSMContext):
+    await state.update_data(username=message.text)
+    await state.set_state(AdminAddProduct.waiting_for_gmail)
+    await message.reply("Gmail:")
 
-    elif action == "delch":
-        await state.set_state(AdminDelChannel.chat_id)
-        await call.message.edit_text("Channel ID to delete?")
+@dp.message(AdminAddProduct.waiting_for_gmail)
+async def add_gmail(message: Message, state: FSMContext):
+    await state.update_data(gmail=message.text)
+    await state.set_state(AdminAddProduct.waiting_for_year)
+    await message.reply("Year:")
 
-    elif action == "cast":
-        await state.set_state(AdminBroadcast.msg)
-        await call.message.edit_text("Send broadcast msg")
-# ================= GEN CODE =================
-@dp.message(AdminGenCode.points)
-async def gen_points(m: Message, state: FSMContext):
-    try:
-        await state.update_data(points=int(m.text))
-        await state.set_state(AdminGenCode.uses)
-        await m.answer("Send number of uses:")
-    except:
-        await m.answer("Send valid number")
+@dp.message(AdminAddProduct.waiting_for_year)
+async def add_year(message: Message, state: FSMContext):
+    await state.update_data(year=message.text)
+    await state.set_state(AdminAddProduct.waiting_for_price)
+    await message.reply("Price:")
 
-@dp.message(AdminGenCode.uses)
-async def gen_uses(m: Message, state: FSMContext):
-    try:
-        data = await state.get_data()
-
-        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-
-        await redeem_codes.insert_one({
-            "code": code,
-            "points": data["points"],
-            "uses_left": int(m.text)
-        })
-
-        await m.answer(f"✅ Code: <code>{code}</code>", reply_markup=main_kb(m.from_user.id))
-        await state.clear()
-    except:
-        await m.answer("Invalid uses number")
-
-
-# ================= ADD CHANNEL =================
-@dp.message(AdminAddChannel.chat_id)
-async def add_ch_id(m: Message, state: FSMContext):
-    await state.update_data(chat_id=m.text)
-    await state.set_state(AdminAddChannel.url)
-    await m.answer("Send Channel Link:")
-
-@dp.message(AdminAddChannel.url)
-async def add_ch_url(m: Message, state: FSMContext):
+@dp.message(AdminAddProduct.waiting_for_price)
+async def add_price(message: Message, state: FSMContext):
     data = await state.get_data()
 
-    await channels.insert_one({
-        "chat_id": data["chat_id"],
-        "url": m.text
-    })
+    c.execute(
+        "INSERT INTO store (username, gmail, year, price) VALUES (%s, %s, %s, %s)",
+        (data['username'], data['gmail'], data['year'], int(message.text))
+    )
 
-    await m.answer("✅ Channel Added", reply_markup=main_kb(m.from_user.id))
+    await message.reply("Added!", reply_markup=main_menu_kb(message.from_user.id))
     await state.clear()
 
-
-# ================= DELETE CHANNEL =================
-@dp.message(AdminDelChannel.chat_id)
-async def del_ch(m: Message, state: FSMContext):
-    await channels.delete_one({"chat_id": m.text.strip()})
-
-    await m.answer("✅ Channel Deleted", reply_markup=main_kb(m.from_user.id))
-    await state.clear()
-    
-# ================= RUN =================
+# ==========================================
+# 🚀 RUN
+# ==========================================
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-         
