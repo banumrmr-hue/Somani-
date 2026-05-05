@@ -1,6 +1,3 @@
-import os 
-os.system("pip install motor")
-os.system("pip install bson")
 import asyncio
 import random
 import string
@@ -32,7 +29,7 @@ dp = Dispatcher(storage=MemoryStorage())
 # ================= DB =================
 client = AsyncIOMotorClient(MONGO_URL)
 db = client["bot_db"]
-
+referrals = db.referrals
 users = db.users
 store = db.store
 channels = db.channels
@@ -87,20 +84,48 @@ def main_kb(uid):
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-# ================= START =================
 @dp.message(CommandStart())
 async def start(m: Message, command: CommandObject):
     uid = m.from_user.id
+    ref = command.args
 
-    if not await users.find_one({"user_id": uid}):
+    user = await users.find_one({"user_id": uid})
+
+    if not user:
         await users.insert_one({
             "user_id": uid,
             "points": 2,
             "last_bonus": None
         })
 
+        # ✅ Referral system
+        if ref and ref.isdigit() and int(ref) != uid:
+            ref_id = int(ref)
+
+            already = await db.referrals.find_one({"new_user": uid})
+
+            if not already:
+                await db.referrals.insert_one({
+                    "new_user": uid,
+                    "referrer": ref_id
+                })
+
+                await users.update_one(
+                    {"user_id": ref_id},
+                    {"$inc": {"points": 5}}
+                )
+
+                try:
+                    await bot.send_message(ref_id, "🎉 Referral +5 🪙")
+                except:
+                    pass
+
     user = await users.find_one({"user_id": uid})
-    await m.answer(f"<b>Welcome</b>\nPoints: {user['points']}", reply_markup=main_kb(uid))
+
+    await m.answer(
+        f"<b>Welcome</b>\nPoints: {user['points']}",
+        reply_markup=main_kb(uid)
+    )
 
 # ================= MENU =================
 @dp.callback_query(F.data.startswith("menu_"))
