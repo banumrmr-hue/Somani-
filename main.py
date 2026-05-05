@@ -9,6 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+
 API_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = [7418454273, 7672413819]
 
@@ -35,7 +36,6 @@ c.execute("CREATE TABLE IF NOT EXISTS claimed_codes(user_id BIGINT,code TEXT,PRI
 c.execute("CREATE TABLE IF NOT EXISTS channels(chat_id TEXT PRIMARY KEY)")
 
 # ===== STATES =====
-
 class Redeem(StatesGroup):
     code = State()
 
@@ -133,8 +133,11 @@ async def buy(call:CallbackQuery):
     c.execute("SELECT username,gmail,year,price FROM store WHERE id=%s",(item_id,))
     item=c.fetchone()
 
-    if not item: await call.answer("Sold",show_alert=True); return
-    if bal<item[3]: await call.answer("Not enough",show_alert=True); return
+    if not item:
+        await call.answer("Sold",show_alert=True); return
+
+    if bal<item[3]:
+        await call.answer("Not enough",show_alert=True); return
 
     c.execute("UPDATE users SET points=points-%s WHERE user_id=%s",(item[3],uid))
     c.execute("DELETE FROM store WHERE id=%s",(item_id,))
@@ -186,11 +189,11 @@ async def admin(call:CallbackQuery):
         [InlineKeyboardButton(text="❌ DELETE CHANNEL", callback_data="del_ch")]
     ]
 
-    await call.message.edit_text(
-        ui("👑 Admin Panel", "Manage your bot"),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-    )
-  @dp.callback_query(F.data=="add_ch")
+    await call.message.edit_text(ui("👑 Admin Panel","Manage bot"),
+    reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+
+# ===== ADD CHANNEL =====
+@dp.callback_query(F.data=="add_ch")
 async def add_channel(call:CallbackQuery, state:FSMContext):
     await state.set_state(AddChannel.chat_id)
     await call.message.edit_text("📥 Send Channel ID")
@@ -203,29 +206,19 @@ async def save_channel(msg:Message, state:FSMContext):
     except:
         await msg.reply("⚠️ Already added or error")
     await state.clear()
-    @dp.callback_query(F.data=="del_ch")
+
+# ===== DELETE CHANNEL =====
+@dp.callback_query(F.data=="del_ch")
 async def del_channel(call:CallbackQuery, state:FSMContext):
     await state.set_state(DelChannel.chat_id)
-    await call.message.edit_text("❌ Send Channel ID to delete")
+    await call.message.edit_text("❌ Send Channel ID")
 
 @dp.message(DelChannel.chat_id)
 async def remove_channel(msg:Message, state:FSMContext):
     c.execute("DELETE FROM channels WHERE chat_id=%s", (msg.text,))
     await msg.reply("✅ Channel Deleted")
     await state.clear()
-    async def check_join(user_id):
-    c.execute("SELECT chat_id FROM channels")
-    channels = c.fetchall()
 
-    for ch in channels:
-        try:
-            member = await bot.get_chat_member(ch[0], user_id)
-            if member.status in ["left", "kicked"]:
-                return False
-        except:
-            return False
-    return True
-    
 # ===== GEN CODE =====
 @dp.callback_query(F.data=="gen")
 async def g1(call:CallbackQuery,state:FSMContext):
