@@ -75,21 +75,48 @@ def menu(uid):
 
 # ===== START =====
 @dp.message(CommandStart())
-async def start(msg:Message,command:CommandObject):
-    uid=msg.from_user.id
-    ref=command.args
+async def start(msg: Message, command: CommandObject):
+    uid = msg.from_user.id
+    ref = command.args
 
-    c.execute("SELECT * FROM users WHERE user_id=%s",(uid,))
-    if not c.fetchone():
-        c.execute("INSERT INTO users(user_id,ref_by) VALUES(%s,%s)",(uid,ref if ref else None))
+    # check user exist
+    c.execute("SELECT * FROM users WHERE user_id=%s", (uid,))
+    user = c.fetchone()
+
+    if not user:
+        ref_id = None
+
+        # validate referral
         if ref and ref.isdigit():
-            c.execute("UPDATE users SET points=points+5 WHERE user_id=%s",(int(ref),))
+            ref_id = int(ref)
 
-    c.execute("SELECT points FROM users WHERE user_id=%s",(uid,))
-    bal=c.fetchone()[0]
+            # user khud ko refer na kare
+            if ref_id == uid:
+                ref_id = None
+            else:
+                # check ref user exist
+                c.execute("SELECT 1 FROM users WHERE user_id=%s", (ref_id,))
+                if c.fetchone():
+                    # give reward
+                    c.execute("UPDATE users SET points = points + 5 WHERE user_id=%s", (ref_id,))
+                else:
+                    ref_id = None
 
-    await msg.reply(ui("Welcome",f"💰 Balance: {bal} 🪙"),reply_markup=menu(uid))
+        # insert new user
+        c.execute(
+            "INSERT INTO users(user_id, ref_by) VALUES(%s,%s)",
+            (uid, ref_id)
+        )
 
+    # get balance
+    c.execute("SELECT points FROM users WHERE user_id=%s", (uid,))
+    bal = c.fetchone()[0]
+
+    await msg.reply(
+        ui("Welcome", f"💰 Balance: {bal} 🪙"),
+        reply_markup=menu(uid)
+    )
+    
 # ===== POINTS =====
 @dp.callback_query(F.data=="points")
 async def points(call:CallbackQuery):
