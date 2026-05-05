@@ -16,7 +16,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 API_TOKEN = os.getenv("8628992445:AAE_7n3Jjru_71_b9LKdfeMF01mc7wLS_YY")
 ADMIN_IDS = [7418454273,7672413819]
 
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=8628992445:AAE_7n3Jjru_71_b9LKdfeMF01mc7wLS_YY)
 dp = Dispatcher(storage=MemoryStorage())
 
 # DATABASE
