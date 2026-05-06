@@ -1,7 +1,7 @@
 import random, string, asyncio, os
 from datetime import datetime, timedelta
 import psycopg2
-
+#alex
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import *
 from aiogram.filters import CommandStart, CommandObject
